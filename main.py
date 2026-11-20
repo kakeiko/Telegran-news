@@ -9,10 +9,10 @@ import requests
 # 1. FONTES DE NOTÍCIAS (FEEDS RSS POR TEMA)
 # ==========================================
 FEEDS = {
-    "🎮 Games (Vazamentos, Anúncios & Indústria)": [
+    "🎮 Games": [
         "https://insider-gaming.com/feed/",          # Maior portal mundial de vazamentos e bastidores
         "https://www.videogameschronicle.com/feed/", # VGC: Notícias oficiais e exclusivas de estúdios
-        "https://flowgames.gg/feed/",                # Portal BR focado em novidades
+        "https://flowgames.gg/feed/",                # Portal BR de novidades
         "https://www.theenemy.com.br/feed"
     ],
     "⛩️ Animes & Mangás": [
@@ -59,7 +59,7 @@ def eh_oferta_de_jogo(texto):
     texto_lower = texto.lower()
     return any(termo in texto_lower for termo in TERMOS_BANIDOS_GAMES)
 
-def coletar_noticias(max_por_tema=8):
+def coletar_noticias(max_por_tema=6):
     """Coleta manchetes e descrições dos feeds RSS com filtro estrito anti-ofertas."""
     noticias_por_tema = {}
     
@@ -70,7 +70,7 @@ def coletar_noticias(max_por_tema=8):
         for url in urls:
             try:
                 feed = feedparser.parse(url)
-                for entry in feed.entries[:max_por_tema * 3]:
+                for entry in feed.entries[:max_por_tema * 2]:
                     titulo = entry.get("title", "").strip()
                     link = entry.get("link", "").strip()
                     resumo_bruto = entry.get("summary") or entry.get("description") or ""
@@ -79,7 +79,6 @@ def coletar_noticias(max_por_tema=8):
                     if not titulo or not link:
                         continue
                         
-                    # Filtro implacável contra promoções em games
                     if is_games:
                         if eh_oferta_de_jogo(titulo) or eh_oferta_de_jogo(resumo_limpo):
                             continue
@@ -92,7 +91,6 @@ def coletar_noticias(max_por_tema=8):
             except Exception as e:
                 print(f"[Aviso] Erro ao buscar feed {url}: {e}")
         
-        # Elimina duplicados por título
         unicos = []
         titulos_vistos = set()
         for item in noticias_tema:
@@ -106,7 +104,7 @@ def coletar_noticias(max_por_tema=8):
     return noticias_por_tema
 
 def montar_prompt(noticias_coletadas):
-    """Monta o prompt instruindo a IA a focar apenas em notícias quentes e mini-resumos."""
+    """Monta o prompt com instruções claras de síntese completa."""
     prompt_dados = ""
     for tema, itens in noticias_coletadas.items():
         prompt_dados += f"\n### {tema}\n"
@@ -115,30 +113,24 @@ def montar_prompt(noticias_coletadas):
             if item["contexto"]:
                 prompt_dados += f"   Contexto: {item['contexto']}\n"
             
-    prompt = f"""Você é o editor-chefe de um boletim diário de tecnologia, games, cultura e política no Telegram.
+    prompt = f"""Você é o editor-chefe de um boletim diário no Telegram.
 Abaixo estão as notícias do dia coletadas de fontes especializadas:
 
 {prompt_dados}
 
-REGRAS DE SELEÇÃO:
-1. QUANTIDADE: Selecione exatamente as 2 ou 3 notícias mais IMPACTANTES de cada tema.
-2. REGRA DE OURO PARA GAMES: PROIBIÇÃO TOTAL de ofertas, descontos, preços de jogos, cupons ou jogos gratuitos para resgate. Queremos APENAS:
-   - Vazamentos de builds ou detalhes confidenciais (leaks).
-   - Anúncios oficiais de novos jogos e consoles.
-   - Demissões, cancelamentos e bastidores de estúdios.
-   - Trailers épicos e datas de lançamento aguardadas.
-3. IDIOMA: Todo o conteúdo final DEVE estar em Português do Brasil (mesmo que a notícia original venha de fonte internacional como Insider Gaming ou VGC, traduza o título e o resumo perfeitamente).
-4. ESTRUTURA VISUAL DE CADA NOTÍCIA:
-   🔹 <b><a href="LINK_ORIGINAL">Título Impactante e Traduzido</a></b>
-   <i>Mini-resumo de 2 a 3 frases explicando exatamente o que aconteceu, os detalhes revelados e o impacto. Seja informativo e contextualize a história.</i>
+REGRAS OBRIGATÓRIAS:
+1. QUANTIDADE: Selecione exatamente 2 notícias mais IMPACTANTES de cada tema.
+2. REGRA DE GAMES: Zero promoções/descontos. Apenas grandes novidades, vazamentos, anúncios ou polêmicas.
+3. IDIOMA: Português do Brasil impecável em tudo (traduza títulos e resumos de fontes internacionais).
+4. RESUMO COMPLETO: Cada notícia deve ter 2 frases completas e conclusivas explicando o fato. NUNCA corte a frase no meio.
+5. FORMATAÇÃO:
+   - Use o separador "---" entre cada categoria para facilitar a leitura.
+   - Para cada notícia:
+     🔹 <b><a href="LINK_ORIGINAL">Título Claro e Traduzido</a></b>
+     <i>Mini-resumo objetivo de 2 frases explicando o acontecimento e o contexto.</i>
+6. Inicie com: "☀️ <b>Boletim Diário: As Notícias Mais Quentes</b>\n"
 
-5. FORMATAÇÃO TELEGRAM (HTML):
-   - Categorias em <b>negrito</b> com emojis.
-   - Links com <a href="URL">Texto</a>.
-   - Mini-resumos em <i>itálico</i>.
-6. Abertura: "☀️ <b>Boletim Diário: As Notícias Mais Quentes</b>"
-
-Responda APENAS com a mensagem pronta para envio, sem tags ```html."""
+Responda APENAS com a mensagem pronta em formato HTML para Telegram (sem crases ```html)."""
     return prompt
 
 def limpar_resposta_html(texto):
@@ -152,7 +144,7 @@ def limpar_resposta_html(texto):
     return texto.strip()
 
 def curar_com_gemini(noticias_coletadas, api_key):
-    """Tenta chamar a API do Gemini com os modelos disponíveis."""
+    """Chama a API do Gemini com capacidade expandida de tokens (8192)."""
     prompt = montar_prompt(noticias_coletadas)
     modelos = [
         "gemini-3.8-flash",
@@ -171,15 +163,15 @@ def curar_com_gemini(noticias_coletadas, api_key):
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
-                    "temperature": 0.35,
-                    "maxOutputTokens": 3000
+                    "temperature": 0.3,
+                    "maxOutputTokens": 8192
                 }
             }
-            resp = requests.post(url, json=payload, timeout=40)
+            resp = requests.post(url, json=payload, timeout=50)
             if resp.status_code == 200:
                 dados = resp.json()
                 texto = dados["candidates"][0]["content"]["parts"][0]["text"]
-                print(f"[Sucesso] Resumo gerado via {modelo}!")
+                print(f"[Sucesso] Resumo gerado via {modelo} com sucesso!")
                 return limpar_resposta_html(texto)
             else:
                 ultimo_erro = f"{modelo} retornou {resp.status_code}: {resp.text}"
@@ -191,41 +183,46 @@ def curar_com_gemini(noticias_coletadas, api_key):
     raise Exception(f"Falha em todos os modelos: {ultimo_erro}")
 
 def enviar_telegram(mensagem_html, bot_token, chat_id):
-    """Envia a mensagem via API do Telegram com suporte a HTML."""
+    """Envia mensagens ao Telegram dividindo por blocos de seções para nunca quebrar tags."""
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    limite = 3900
-    partes = []
     
-    if len(mensagem_html) <= limite:
-        partes = [mensagem_html]
+    # Se couber em uma única mensagem (até 3800 caracteres), envia direto
+    if len(mensagem_html) <= 3800:
+        blocos = [mensagem_html]
     else:
-        linhas = mensagem_html.split("\n")
-        parte_atual = ""
-        for linha in linhas:
-            if len(parte_atual) + len(linha) + 1 < limite:
-                parte_atual += linha + "\n"
+        # Divide por categorias (separador '---' ou linha em branco dupla)
+        secoes = mensagem_html.split("\n---")
+        blocos = []
+        bloco_atual = ""
+        for sec in secoes:
+            sec = sec.strip()
+            if not sec:
+                continue
+            if len(bloco_atual) + len(sec) + 10 < 3800:
+                bloco_atual += ("\n\n" if bloco_atual else "") + sec
             else:
-                partes.append(parte_atual.strip())
-                parte_atual = linha + "\n"
-        if parte_atual:
-            partes.append(parte_atual.strip())
-    
-    for parte in partes:
-        if not parte.strip():
+                if bloco_atual:
+                    blocos.append(bloco_atual)
+                bloco_atual = sec
+        if bloco_atual:
+            blocos.append(bloco_atual)
+            
+    for i, bloco in enumerate(blocos, 1):
+        if not bloco.strip():
             continue
         payload = {
             "chat_id": chat_id,
-            "text": parte,
+            "text": bloco,
             "parse_mode": "HTML",
             "disable_web_page_preview": True
         }
         resp = requests.post(url, json=payload, timeout=30)
         if resp.status_code != 200:
-            print(f"[Aviso HTML falhou] Enviando como texto plano: {resp.text}")
+            print(f"[Aviso HTML bloco {i} falhou] Enviando como texto: {resp.text}")
             payload["parse_mode"] = ""
             requests.post(url, json=payload, timeout=30)
         else:
-            print("[Sucesso] Mensagem entregue no Telegram!")
+            print(f"[Sucesso] Bloco {i}/{len(blocos)} entregue no Telegram!")
 
 def main():
     print("Iniciando rotina de notícias...")
@@ -239,8 +236,6 @@ def main():
         print("Erro: TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID são obrigatórios.")
         sys.exit(1)
         
-    print(f"Status chaves: GEMINI={'OK' if gemini_key else 'NÃO ENCONTRADA'}, ANTHROPIC={'OK' if anthropic_key else 'NÃO ENCONTRADA'}")
-    
     print("1/3 Coletando feeds RSS com filtro estrito contra ofertas...")
     noticias = coletar_noticias()
     
@@ -262,8 +257,8 @@ def main():
             prompt = montar_prompt(noticias)
             response = client.messages.create(
                 model="claude-3-5-sonnet-20241022",
-                max_tokens=3000,
-                temperature=0.35,
+                max_tokens=4000,
+                temperature=0.3,
                 messages=[{"role": "user", "content": prompt}]
             )
             mensagem = limpar_resposta_html(response.content[0].text)
@@ -275,12 +270,12 @@ def main():
         motivo = erro_detalhe if erro_detalhe else "Chave GEMINI_API_KEY ausente no GitHub Secrets"
         print(f"[Aviso Fallback] Motivo: {motivo}")
         linhas = [
-            "☀️ <b>Boletim Diário: Destaques de Hoje</b>",
+            "☀️ <b>Boletim Diário: Destaques de Hoje</b>\n",
             f"⚠️ <i>Nota: IA indisponível ({html.escape(motivo[:100])})</i>\n"
         ]
         for tema, itens in noticias.items():
             linhas.append(f"\n<b>{tema}</b>")
-            for item in itens[:3]:
+            for item in itens[:2]:
                 titulo = html.escape(item['titulo'])
                 contexto = html.escape(item['contexto']) if item['contexto'] else "Notícia em destaque."
                 linhas.append(f"🔹 <a href=\"{item['link']}\"><b>{titulo}</b></a>\n   <i>{contexto}</i>")
