@@ -1,0 +1,34 @@
+name: Envio Diário de Notícias Telegram
+
+on:
+  schedule:
+    # 11:00 UTC = 08:00 Horário de Brasília
+    # 21:00 UTC = 18:00 Horário de Brasília
+    - cron: '0 11,21 * * *'
+  workflow_dispatch: # Permite rodar manualmente a qualquer momento pelo botão no GitHub
+
+jobs:
+  executar-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependências
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Coletar notícias, curar com Claude e enviar ao Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python main.py
