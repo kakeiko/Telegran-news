@@ -5,7 +5,7 @@ on:
     # 11:00 UTC = 08:00 Horário de Brasília
     # 21:00 UTC = 18:00 Horário de Brasília
     - cron: '0 11,21 * * *'
-  workflow_dispatch: # Permite rodar manualmente a qualquer momento pelo botão no GitHub
+  workflow_dispatch: # Botão para testar manualmente a qualquer momento
 
 jobs:
   executar-bot:
@@ -26,9 +26,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Coletar notícias, curar com Claude e enviar ao Telegram
+      - name: Coletar notícias, curar com Gemini e enviar ao Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python main.py
