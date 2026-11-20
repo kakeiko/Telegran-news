@@ -105,6 +105,42 @@ def coletar_noticias(max_por_tema=8):
         
     return noticias_por_tema
 
+def obter_modelos_disponiveis(api_key):
+    """Consulta a API do Google para descobrir automaticamente o modelo Flash mais recente disponível."""
+    candidatos_preferidos = [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3.0-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
+    ]
+    
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key.strip()}"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            dados = resp.json()
+            modelos_conta = [
+                m["name"].replace("models/", "")
+                for m in dados.get("models", [])
+                if "generateContent" in m.get("supportedGenerationMethods", []) and "flash" in m.get("name", "").lower()
+            ]
+            print(f"[Modelos Flash disponíveis na sua conta]: {modelos_conta}")
+            
+            # Prioriza a versão mais recente encontrada na lista de candidatos
+            for cand in candidatos_preferidos:
+                if cand in modelos_conta:
+                    return [cand] + [m for m in modelos_conta if m != cand]
+                    
+            if modelos_conta:
+                modelos_conta.sort(reverse=True)
+                return modelos_conta
+    except Exception as e:
+        print(f"[Aviso] Consulta dinâmica de modelos: {e}")
+        
+    return candidatos_preferidos
+
 def montar_prompt_json(noticias_coletadas):
     """Cria o prompt solicitando resposta estritamente em JSON para evitar erros de formatação."""
     prompt_dados = ""
@@ -144,11 +180,9 @@ Você DEVE responder EXCLUSIVAMENTE um objeto JSON válido no seguinte formato:
     return prompt
 
 def curar_com_gemini_json(noticias_coletadas, api_key):
-    """Executa UMA única chamada otimizada com JSON nativo e 8192 tokens."""
+    """Executa a curadoria usando automaticamente o modelo mais avançado suportado pela chave."""
     prompt = montar_prompt_json(noticias_coletadas)
-    
-    # Modelos oficiais e funcionais do Google AI Studio
-    modelos = ["gemini-2.0-flash", "gemini-1.5-flash"]
+    modelos = obter_modelos_disponiveis(api_key)
     
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -159,7 +193,7 @@ def curar_com_gemini_json(noticias_coletadas, api_key):
     
     for modelo in modelos:
         try:
-            print(f"Solicitando curadoria estruturada via {modelo}...")
+            print(f"Tentando curadoria com o modelo: {modelo}...")
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key.strip()}"
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
@@ -174,11 +208,12 @@ def curar_com_gemini_json(noticias_coletadas, api_key):
             if resp.status_code == 200:
                 dados = resp.json()
                 texto_json = dados["candidates"][0]["content"]["parts"][0]["text"]
+                print(f"[Sucesso Absoluto] Notícias processadas com o modelo mais recente: {modelo}!")
                 return json.loads(texto_json)
             else:
-                print(f"[Aviso] {modelo} retornou {resp.status_code}: {resp.text}")
+                print(f"[Aviso] Modelo {modelo} retornou status {resp.status_code}")
         except Exception as e:
-            print(f"[Aviso] Erro no modelo {modelo}: {e}")
+            print(f"[Aviso] Falha com {modelo}: {e}")
             
     return None
 
@@ -186,10 +221,9 @@ def formatar_e_enviar_telegram(dados_json, noticias_brutas, bot_token, chat_id):
     """Formata o HTML com segurança máxima via Python e envia uma mensagem por categoria."""
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     
-    # Se a IA respondeu o JSON
     if dados_json and "categorias" in dados_json:
         categorias = dados_json["categorias"]
-        print(f"Formatando {len(categorias)} categorias a partir do JSON da IA...")
+        print(f"Enviando {len(categorias)} categorias para o Telegram...")
         
         for idx, cat in enumerate(categorias, 1):
             tema = cat.get("tema", "Notícias")
@@ -220,15 +254,14 @@ def formatar_e_enviar_telegram(dados_json, noticias_brutas, bot_token, chat_id):
             if resp.status_code == 200:
                 print(f"[Sucesso] Mensagem {idx}/{len(categorias)} ({tema}) entregue!")
             else:
-                print(f"[Aviso] Falha no HTML de {tema}: {resp.text}. Enviando texto limpo...")
+                print(f"[Aviso] Falha no HTML de {tema}. Enviando texto limpo...")
                 payload["text"] = re.sub(r'<[^>]+>', '', mensagem_html)
                 payload["parse_mode"] = ""
                 requests.post(url, json=payload, timeout=30)
                 
-            time.sleep(1.0) # Evita limites de taxa do Telegram
+            time.sleep(1.0)
             
     else:
-        # Fallback de segurança local garantido
         print("[Aviso] Usando fallback local das notícias...")
         for tema, itens in noticias_brutas.items():
             linhas = [f"<b>{html.escape(tema)}</b>\n"]
@@ -249,7 +282,7 @@ def formatar_e_enviar_telegram(dados_json, noticias_brutas, bot_token, chat_id):
             time.sleep(1.0)
 
 def main():
-    print("Iniciando rotina de notícias (Modo JSON Estruturado)...")
+    print("Iniciando rotina de notícias...")
     
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -262,14 +295,14 @@ def main():
     print("1/3 Coletando feeds RSS com filtro anti-ofertas...")
     noticias = coletar_noticias()
     
-    print("2/3 Gerando curadoria inteligente via IA em chamada única...")
+    print("2/3 Detectando modelo mais recente e gerando curadoria com IA...")
     dados_json = None
     if gemini_key:
         dados_json = curar_com_gemini_json(noticias, gemini_key)
         
-    print("3/3 Formatando e despachando categorias para o Telegram...")
+    print("3/3 Despachando categorias completas para o Telegram...")
     formatar_e_enviar_telegram(dados_json, noticias, telegram_token, telegram_chat_id)
-    print("Rotina concluída com sucesso!")
+    print("Processo concluído com êxito!")
 
 if __name__ == "__main__":
     main()
